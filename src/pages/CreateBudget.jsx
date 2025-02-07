@@ -1,85 +1,75 @@
 import React, { useState, useEffect } from "react";
 import Button from "../components/ui/button";
 import { db } from "../firebase";
-import { collection, addDoc, getDocs, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
 
 function CreateBudget() {
   const [eventType, setEventType] = useState("");
-  const [numAttendees, setNumAttendees] = useState(0);
-  const [selectedServices, setSelectedServices] = useState([]);
   const [services, setServices] = useState([]);
-  const [newServiceName, setNewServiceName] = useState("");
-  const [newServiceCost, setNewServiceCost] = useState("");
-
-  const servicesCollection = collection(db, "services");
+  const [newService, setNewService] = useState({ name: "", cost: 0 });
+  const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(servicesCollection, (snapshot) => {
-      const servicesData = snapshot.docs.map((doc) => ({
+    const fetchServices = async () => {
+      const querySnapshot = await getDocs(collection(db, "services"));
+      const fetchedServices = querySnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
+        quantity: 1,
       }));
-      setServices(servicesData);
-    });
+      setServices(fetchedServices);
+    };
 
-    return unsubscribe;
+    fetchServices();
   }, []);
 
-  const handleServiceChange = (id) => {
-    setSelectedServices((prevServices) =>
-      prevServices.includes(id)
-        ? prevServices.filter((serviceId) => serviceId !== id)
-        : [...prevServices, id]
-    );
-  };
-
-  const handleAddService = async () => {
-    if (newServiceName && !isNaN(newServiceCost) && newServiceCost >= 0) {
-      try {
-        await addDoc(servicesCollection, {
-          name: newServiceName,
-          cost: Number(newServiceCost),
-        });
-        setNewServiceName("");
-        setNewServiceCost("");
-      } catch (error) {
-        console.error("Error al agregar servicio: ", error);
-      }
-    } else {
-      alert("Por favor ingrese un nombre y un costo válido para el servicio.");
-    }
-  };
-
-  const handleServiceCostChange = (id, newCost) => {
+  const handleServiceChange = (id, key, value) => {
     setServices((prevServices) =>
       prevServices.map((service) =>
-        service.id === id ? { ...service, cost: Number(newCost) } : service
+        service.id === id ? { ...service, [key]: value } : service
       )
     );
   };
 
   const calculateCost = () => {
     const baseCost = 500;
-    const serviceCost = selectedServices.reduce((total, serviceId) => {
-      const service = services.find((s) => s.id === serviceId);
-      return service ? total + service.cost : total;
-    }, 0);
-    const attendeeCost = numAttendees * 10;
-    return baseCost + serviceCost + attendeeCost;
+    const serviceCost = services.reduce(
+      (acc, service) => acc + service.cost * service.quantity,
+      0
+    );
+    return baseCost + serviceCost;
+  };
+
+  const handleAddService = async () => {
+    if (newService.name.trim() === "" || newService.cost <= 0) return;
+
+    const docRef = await addDoc(collection(db, "services"), newService);
+    setServices([...services, { id: docRef.id, ...newService, quantity: 1 }]);
+    setNewService({ name: "", cost: 0 });
+    setShowModal(false);
+  };
+
+  const handleDeleteService = async (id) => {
+    await deleteDoc(doc(db, "services", id));
+    setServices(services.filter((service) => service.id !== id));
   };
 
   return (
-    <div className="p-10 bg-gradient-to-b from-gray-50 to-gray-100 min-h-screen flex flex-col items-center">
-      <h2 className="text-4xl font-extrabold text-gray-800 mb-8">
-        Crear Presupuesto
-      </h2>
-      <div className="w-full max-w-lg bg-white p-8 rounded-xl shadow-lg">
-        <div className="mb-6">
-          <label className="block text-lg font-medium mb-2 text-gray-700">
-            Tipo de Evento
-          </label>
+    <div className="p-10 flex justify-center">
+      <div className="w-2/4 bg-white shadow-lg p-8 rounded-xl">
+        <h2 className="text-2xl font-bold mb-5">Crear Presupuesto</h2>
+
+        <div className="mb-4">
+          <label className="block mb-2">Tipo de Evento</label>
           <select
-            className="border rounded-lg px-4 py-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className="border rounded px-3 py-2 w-full"
             value={eventType}
             onChange={(e) => setEventType(e.target.value)}
           >
@@ -90,71 +80,86 @@ function CreateBudget() {
           </select>
         </div>
 
-        <div className="mb-6">
-          <label className="block text-lg font-medium mb-2 text-gray-700">
-            Número de Asistentes
-          </label>
-          <input
-            type="number"
-            className="border rounded-lg px-4 py-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-            value={numAttendees}
-            onChange={(e) => setNumAttendees(Number(e.target.value))}
-          />
-        </div>
-
-        <div className="mb-6">
-          <label className="block text-lg font-medium mb-2 text-gray-700">
-            Servicios
-          </label>
+        <div className="mb-4">
+          <label className="block mb-2">Servicios</label>
           {services.map((service) => (
-            <div key={service.id} className="flex items-center mb-4">
-              <input
-                type="checkbox"
-                className="mr-3 h-5 w-5 focus:ring-2 focus:ring-blue-400"
-                checked={selectedServices.includes(service.id)}
-                onChange={() => handleServiceChange(service.id)}
-              />
-              <span className="text-gray-700 text-lg mr-4">{service.name}</span>
+            <div key={service.id} className="flex items-center mb-2 space-x-3">
+              <span>{service.name}</span>
               <input
                 type="number"
-                className="border w-24 px-2 py-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-                value={service.cost}
+                min="1"
+                value={service.quantity}
                 onChange={(e) =>
-                  handleServiceCostChange(service.id, e.target.value)
+                  handleServiceChange(
+                    service.id,
+                    "quantity",
+                    Number(e.target.value)
+                  )
                 }
+                className="border rounded px-2 w-16"
               />
+              <span>Costo: ${service.cost}</span>
+              <button
+                onClick={() => handleDeleteService(service.id)}
+                className="bg-red-500 text-white px-2 py-1 rounded ml-2"
+              >
+                Eliminar
+              </button>
             </div>
           ))}
         </div>
 
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold mb-2 text-gray-700">
-            Agregar Nuevo Servicio
-          </h3>
-          <input
-            type="text"
-            placeholder="Nombre del servicio"
-            className="border rounded-lg px-4 py-2 w-full mb-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            value={newServiceName}
-            onChange={(e) => setNewServiceName(e.target.value)}
-          />
-          <input
-            type="number"
-            placeholder="Costo del servicio"
-            className="border rounded-lg px-4 py-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-            value={newServiceCost}
-            onChange={(e) => setNewServiceCost(e.target.value)}
-          />
+        <div className="mb-4">
           <Button
-            className="bg-blue-500 text-white w-full mt-4"
-            onClick={handleAddService}
+            onClick={() => setShowModal(true)}
+            className="bg-blue-500 text-white"
           >
             Agregar Servicio
           </Button>
         </div>
 
-        <div className="mt-8">
-          <Button className="bg-green-500 text-white w-full py-3">
+        {showModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-10">
+            <div className="bg-white p-6 rounded-lg shadow-lg">
+              <h3 className="text-lg font-bold mb-4">Nuevo Servicio</h3>
+              <input
+                type="text"
+                placeholder="Nombre del Servicio"
+                value={newService.name}
+                onChange={(e) =>
+                  setNewService({ ...newService, name: e.target.value })
+                }
+                className="border rounded px-3 py-2 w-full mb-2"
+              />
+              <input
+                type="number"
+                placeholder="Costo del Servicio"
+                value={newService.cost}
+                onChange={(e) =>
+                  setNewService({ ...newService, cost: Number(e.target.value) })
+                }
+                className="border rounded px-3 py-2 w-full mb-2"
+              />
+              <div className="flex justify-end space-x-2">
+                <Button
+                  onClick={() => setShowModal(false)}
+                  className="bg-gray-400 text-white"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleAddService}
+                  className="bg-blue-500 text-white"
+                >
+                  Agregar
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-5">
+          <Button className="bg-green-500 text-white">
             Costo Estimado: ${calculateCost()}
           </Button>
         </div>
